@@ -1,0 +1,114 @@
+//Grupo 4
+//Henrique Alles
+//Lucas Ferrari
+#include <SoftwareSerial.h>
+#include <ModbusRTUSlave.h>
+/*
+&  AND
+|  OR
+~  NOT
+>> shift right
+<< shift left
+^  XOR
+*/
+
+float ic = 5./1023.;
+
+const byte ledPins[3] = {13, 12, 11};//Write coil para escrever
+const byte buttonPins[3] = {4 ,3, 2};//read discrete input
+const byte potPins[2] = {A0, A1};//read input register ,A0 potenciometro   A1 LM35
+
+const uint8_t rxPin = 7;
+const uint8_t txPin = 5;
+const uint8_t dePin = 6;
+
+SoftwareSerial mySerial(rxPin, txPin);
+ModbusRTUSlave modbus(mySerial, dePin); // serial port, driver enable pin for rs-485 (optional)
+
+bool coils[3];
+bool discreteInputs[3];
+uint16_t holdingRegisters[4];
+uint16_t inputRegisters[2];
+
+union data{
+  float temp;
+  struct{
+    uint16_t q;
+    uint16_t q1;
+  }raw;
+}ieee;
+
+union data2{
+  float pot;
+  struct{
+    uint16_t w;
+    uint16_t w1;
+  }raw2;
+}ieee2;
+
+void setup() {
+  pinMode(ledPins[0], OUTPUT);
+  pinMode(ledPins[1], OUTPUT);
+  pinMode(ledPins[2], OUTPUT);
+  pinMode(buttonPins[0], INPUT_PULLUP);
+  pinMode(buttonPins[1], INPUT_PULLUP);
+  pinMode(buttonPins[2], INPUT_PULLUP);
+  pinMode(potPins[0], INPUT);
+  pinMode(potPins[1], INPUT);
+
+  Serial.begin(9600);
+
+  modbus.configureCoils(coils, 3);                       // bool array of coil values, number of coils
+  modbus.configureDiscreteInputs(discreteInputs, 3);     // bool array of discrete input values, number of discrete inputs
+  modbus.configureHoldingRegisters(holdingRegisters, 4); // unsigned 16 bit integer array of holding register values, number of holding registers
+  modbus.configureInputRegisters(inputRegisters, 2);     // unsigned 16 bit integer array of input register values, number of input registers
+  modbus.begin(4, 9600);                                // slave id, baud rate, config (optional)
+}
+
+void loop() {
+  discreteInputs[0] = !digitalRead(buttonPins[0]);
+  discreteInputs[1] = !digitalRead(buttonPins[1]);
+  discreteInputs[2] = !digitalRead(buttonPins[2]);
+  ieee.raw.q=analogRead(potPins[0]);
+  ieee.raw.q1=analogRead(potPins[1]);
+
+  inputRegisters[0] = analogRead(potPins[0]); // potenciometro
+  inputRegisters[1] = analogRead(potPins[1]); // temperatura
+
+  ieee.temp = (inputRegisters[1] * ic) * 100;
+
+  ieee2.pot= inputRegisters[0]*0.0048875 ;
+  holdingRegisters[0] = ieee2.raw2.w;//0.0048875=5/1023 
+  holdingRegisters[1] = ieee2.raw2.w1;
+
+  holdingRegisters[2] = ieee.raw.q;
+  holdingRegisters[3] = ieee.raw.q1;
+
+
+
+
+  modbus.poll();
+  Serial.print("A0: ");
+  Serial.print(inputRegisters[0]);
+
+  Serial.print(" A1:");
+  Serial.print(inputRegisters[1]);
+
+  digitalWrite(ledPins[0], coils[0]);
+  digitalWrite(ledPins[1], coils[1]);
+  digitalWrite(ledPins[2], coils[2]);
+  //analogWrite(ledPins[2], holdingRegisters[0]);
+  //analogWrite(ledPins[3], holdingRegisters[1]);
+  Serial.print(" temp:");
+  Serial.print(ieee.temp);
+ 
+  Serial.print(" pot:");
+  Serial.println(ieee2.pot);
+  
+
+
+}
+
+float map(int x, double in_min, double in_max, double out_min, double out_max){
+  return (float)(x - in_min) * (out_max - out_min) / (float)(in_max - in_min) + out_min;
+}
